@@ -80,13 +80,24 @@ jobs:
       # Trusted publishing (OIDC): the id-token permission above is the credential, and npm
       # attaches provenance by itself. bun publish does not support it.
       - name: Publish to npm
-        run: npm publish
+        run: |
+          name="$(bun -e 'console.log(require("./package.json").name)')"
+          version="$(bun -e 'console.log(require("./package.json").version)')"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already on the registry; skipping."
+          else
+            npm publish
+          fi
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            dist/index.js
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/index.js --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              dist/index.js
+          fi
