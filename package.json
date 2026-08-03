@@ -1,6 +1,6 @@
 {
   "name": "@omznc/olx-mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "MCP server for the OLX.ba marketplace API",
   "type": "module",
   "license": "MIT",
@@ -13,14 +13,24 @@
   "bugs": {
     "url": "https://github.com/omznc/olx-mcp/issues"
   },
-  "keywords": ["mcp", "olx", "olx.ba", "claude", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "olx",
+    "olx.ba",
+    "claude",
+    "model-context-protocol"
+  ],
   "engines": {
     "node": ">=18"
   },
   "bin": {
     "olx-mcp": "dist/index.js"
   },
-  "files": ["dist/index.js", "README.md", "LICENSE"],
+  "files": [
+    "dist/index.js",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },
