@@ -2,12 +2,13 @@
  * End-to-end checks against a real server process over stdio. Tests that call the live OLX
  * API are opt-in via OLX_LIVE_TESTS=1; everything else here is hermetic.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import pkg from "../package.json" with { type: "json" };
 
 const SRC = new URL("../src/index.ts", import.meta.url).pathname;
@@ -25,16 +26,62 @@ afterAll(async () => {
 	await rm(configDir, { recursive: true, force: true });
 });
 
-async function connect(runtime: "bun" | "node" = "bun") {
-	const client = new Client({ name: "smoke", version: "1.0.0" });
+async function connect(
+	runtime: "bun" | "node" = "bun",
+	options: { env?: Record<string, string>; elicitation?: ElicitHandler } = {},
+) {
+	const client = new Client(
+		{ name: "smoke", version: "1.0.0" },
+		options.elicitation ? { capabilities: { elicitation: {} } } : undefined,
+	);
+	if (options.elicitation) client.setRequestHandler(ElicitRequestSchema, options.elicitation);
 	await client.connect(
 		new StdioClientTransport({
 			command: runtime,
 			args: [runtime === "bun" ? SRC : DIST],
-			env: { PATH: process.env.PATH ?? "", OLX_MCP_CONFIG_DIR: configDir },
+			env: {
+				PATH: process.env.PATH ?? "",
+				OLX_MCP_CONFIG_DIR: configDir,
+				...options.env,
+			},
 		}),
 	);
 	return client;
+}
+
+type ElicitHandler = (request: {
+	params: { message: string; requestedSchema?: unknown };
+}) => Promise<{ action: string; content?: Record<string, unknown> }>;
+
+/**
+ * Stand-in for api.olx.ba: mints a token for any login, and guards /me with it. Lets the
+ * elicitation flow be exercised end-to-end without touching the real API.
+ */
+function fakeOlx() {
+	const requests: string[] = [];
+	const server = Bun.serve({
+		port: 0,
+		async fetch(request) {
+			const { pathname } = new URL(request.url);
+			requests.push(`${request.method} ${pathname}`);
+
+			if (pathname === "/auth/login") {
+				const body = (await request.json()) as { username?: string; password?: string };
+				if (body.username !== "tester" || body.password !== "hunter2")
+					return Response.json({ message: "These credentials do not match our records." }, {
+						status: 422,
+					});
+				return Response.json({ token: "minted", user: { id: 1, username: "tester" } });
+			}
+			if (pathname === "/me") {
+				if (request.headers.get("authorization") !== "Bearer minted")
+					return Response.json({ message: "Unauthenticated." }, { status: 401 });
+				return Response.json({ data: { id: 1, username: "tester", email: "t@example.com" } });
+			}
+			return Response.json({ message: "Not found" }, { status: 404 });
+		},
+	});
+	return { url: server.url.origin, requests, stop: () => server.stop(true) };
 }
 
 /** Tools that must never be auto-approved: they delete data or spend the account balance. */
@@ -133,6 +180,77 @@ describe("olx-mcp", () => {
 		// The auth file must resolve inside the sandboxed config dir, not the real one.
 		expect(payload.auth_file.startsWith(configDir)).toBe(true);
 		await client.close();
+	});
+
+	test("asks the client for a login when no credential is configured", async () => {
+		const api = fakeOlx();
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-elicit-"));
+		const dialogs: string[] = [];
+
+		const client = await connect("bun", {
+			env: { OLX_BASE_URL: api.url, OLX_MCP_CONFIG_DIR: dir },
+			elicitation: async (request) => {
+				dialogs.push(request.params.message);
+				return { action: "accept", content: { username: "tester", password: "hunter2" } };
+			},
+		});
+
+		const result: any = await client.callTool({ name: "olx_me", arguments: {} });
+
+		expect(result.isError).toBeFalsy();
+		expect(JSON.parse(result.content[0].text).username).toBe("tester");
+		expect(dialogs).toHaveLength(1);
+		expect(api.requests).toEqual(["POST /auth/login", "GET /me"]);
+		// The token is saved, so the next run needs no dialog.
+		const saved = JSON.parse(await readFile(join(dir, "auth.json"), "utf8"));
+		expect(saved.token).toBe("minted");
+
+		await client.close();
+		api.stop();
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a dismissed login dialog leaves the same error as no credential", async () => {
+		const api = fakeOlx();
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-elicit-"));
+
+		const client = await connect("bun", {
+			env: { OLX_BASE_URL: api.url, OLX_MCP_CONFIG_DIR: dir },
+			elicitation: async () => ({ action: "cancel" }),
+		});
+
+		const result: any = await client.callTool({ name: "olx_me", arguments: {} });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not logged in");
+		expect(api.requests).toEqual([]);
+
+		await client.close();
+		api.stop();
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("OLX_NO_ELICIT suppresses the dialog entirely", async () => {
+		const api = fakeOlx();
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-elicit-"));
+		let asked = 0;
+
+		const client = await connect("bun", {
+			env: { OLX_BASE_URL: api.url, OLX_MCP_CONFIG_DIR: dir, OLX_NO_ELICIT: "1" },
+			elicitation: async () => {
+				asked++;
+				return { action: "accept", content: { username: "tester", password: "hunter2" } };
+			},
+		});
+
+		const result: any = await client.callTool({ name: "olx_me", arguments: {} });
+
+		expect(result.isError).toBe(true);
+		expect(asked).toBe(0);
+
+		await client.close();
+		api.stop();
+		await rm(dir, { recursive: true, force: true });
 	});
 
 	test("validates arguments against the tool schema", async () => {

@@ -1,28 +1,70 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+    <img alt="olx-mcp — MCP server za OLX.ba" src="assets/banner-light.svg" width="900">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@omznc/olx-mcp"><img alt="npm" src="https://img.shields.io/npm/v/@omznc/olx-mcp?color=0d9488&label=npm"></a>
+  <a href="https://www.npmjs.com/package/@omznc/olx-mcp"><img alt="preuzimanja" src="https://img.shields.io/npm/dm/@omznc/olx-mcp?color=0284c7&label=preuzimanja"></a>
+  <a href="https://github.com/omznc/olx-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/omznc/olx-mcp/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="licenca" src="https://img.shields.io/npm/l/@omznc/olx-mcp?color=64748b&label=licenca"></a>
+  <img alt="node" src="https://img.shields.io/node/v/@omznc/olx-mcp?color=334155">
+</p>
+
 # olx-mcp (vibe coded nije me briga)
 
 MCP server za [OLX.ba API](https://api-documentation.olx.ba/). Omogućava Claudeu (i drugim MCP
 klijentima) da pretražuje OLX, objavljuje i uređuje oglase, upravlja slikama i sponzorstvima.
 36 alata koji pokrivaju sve endpointe iz zvanične dokumentacije, plus pretragu oglasa.
 
+## Kako izgleda
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/usage-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/usage-light.svg">
+    <img alt="Primjer razgovora: pretraga oglasa preko olx-mcp" src="assets/usage-light.svg" width="820">
+  </picture>
+</p>
+
+Nekoliko primjera šta možete tražiti kad je server dodan:
+
+| Vi kažete | Server odradi |
+| --- | --- |
+| „Nađi polovni bicikl u Sarajevu do 400 KM.” | `olx_search_listings` |
+| „Koliko košta da sponzorišem oglas 4821990 na 7 dana?” | `olx_sponsor_price` |
+| „Objavi oglas za Trek bicikl, 340 KM, ove tri slike.” | `olx_suggest_category` → `olx_create_listing` → `olx_upload_listing_images` → `olx_publish_listing` |
+| „Koji moji oglasi su istekli?” | `olx_user_listings` |
+| „Obnovi oglas 4819774 ako je besplatno.” | `olx_refresh_limits` → `olx_refresh_listing` |
+
 ## Instalacija
 
 ```sh
 claude mcp add olx -- npx -y @omznc/olx-mcp
+```
+
+To je sve. Prvi put kad neki alat zatraži prijavu, server zatraži korisničko ime i lozinku kroz
+sam MCP klijent (Claude Code prikaže prozorčić), razmijeni ih za token, sačuva ga i nastavi
+prekinuti poziv. Nema posebne `login` komande ni restarta.
+
+Ako vam više odgovara terminal, ili klijent ne podržava taj prozorčić:
+
+```sh
 npx -y @omznc/olx-mcp login
 ```
 
-Prva komanda registruje server, druga vas prijavi na OLX. Nakon prijave restartujte Claude Code.
-
-Druga opcija je bez terminalske prijave: podatke stavite u konfiguraciju samog servera.
+Treća opcija je bez ikakve prijave: podatke stavite u konfiguraciju samog servera.
 
 ```sh
 claude mcp add olx -e OLX_USERNAME=vase.ime -e OLX_PASSWORD=vasa.lozinka -- npx -y @omznc/olx-mcp
 ```
 
-Server se tada prijavi sam pri prvom pozivu i sam obnovi token kad istekne, pa nema `login`
-koraka ni restarta. Razlika je gdje stoji lozinka: ovako ostaje zapisana u konfiguraciji MCP
-klijenta u čitljivom obliku, dok `login` iz terminala sačuva samo token. Oba načina rade, birajte
-po tome šta vam više odgovara.
+Server se tada prijavi sam pri prvom pozivu i sam obnovi token kad istekne. Razlika je gdje stoji
+lozinka: ovako ostaje zapisana u konfiguraciji MCP klijenta u čitljivom obliku, dok prozorčić i
+`login` sačuvaju samo token. Sva tri načina rade, birajte po tome šta vam više odgovara.
 
 Radi sa Node.js 18+ ili Bunom. `npx` je samo najčešće dostupan; ako koristite Bun, `bunx` radi
 isto tako.
@@ -43,8 +85,9 @@ Server je običan stdio MCP server, pa u konfiguraciju klijenta ide:
 }
 ```
 
-Isto vrijedi i ovdje: ili se prijavite iz terminala (`npx -y @omznc/olx-mcp login`), ili dodajte
-podatke u `env` iste konfiguracije:
+Isto vrijedi i ovdje: klijenti koji podržavaju `elicitation` sami prikažu prozorčić za prijavu na
+prvom alatu koji je traži. Ako ne podržavaju, prijavite se iz terminala
+(`npx -y @omznc/olx-mcp login`) ili dodajte podatke u `env` iste konfiguracije:
 
 ```json
 {
@@ -78,6 +121,24 @@ Prijava ostaje sačuvana; token je u `auth.json`, ne u cacheu.
 
 ## Prijava
 
+Prijava kroz MCP klijent (MCP „elicitation”) je podrazumijevani put i traži se tek kad zatreba,
+na prvom alatu koji je ne može bez nje:
+
+1. Alat poput `olx_me` naiđe na to da nema tokena ni env varijabli.
+2. Server pošalje `elicitation/create`, klijent prikaže polja za korisničko ime i lozinku.
+3. Podaci idu na `POST /auth/login`, token se sačuva u `auth.json`, prekinuti poziv se ponovi.
+
+Lozinka pri tome ide MCP kanalom do ovog procesa, a ne kao argument alata, pa je model ne vidi u
+transkriptu. Ali ne kontrolišemo šta klijent radi sa onim što ste ukucali u svoj prozorčić — ako
+želite da lozinka ostane strogo lokalna, koristite `login` iz terminala.
+
+Isto se dešava kad sačuvani token istekne: umjesto greške dobijete prozorčić i poziv se nastavi.
+
+Klijent koji ne najavi `elicitation` sposobnost nikad ne dobije taj zahtjev i vidi običnu grešku
+sa uputom da se pokrene `login`. `OLX_NO_ELICIT=1` isključuje prozorčić i kad ga klijent podržava.
+
+### Iz terminala
+
 ```sh
 npx -y @omznc/olx-mcp login     # traži korisničko ime i lozinku
 npx -y @omznc/olx-mcp status    # provjeri da li prijava radi
@@ -93,8 +154,9 @@ Lozinka se ne ispisuje dok se kuca i nigdje se ne čuva. Sačuva se samo token k
 
 Na Linuxu i macOS-u fajl dobija dozvole `600`, pa ga čita samo vaš korisnik.
 
-Prijavljujte se iz terminala ili preko varijabli okruženja ispod, a ne kroz `olx_login` alat u
-razgovoru: argumenti alata se zapisuju u historiju razgovora, pa bi lozinka završila tamo.
+Prijavljujte se kroz prozorčić, iz terminala ili preko varijabli okruženja ispod, a ne kroz
+`olx_login` alat u razgovoru: argumenti alata se zapisuju u historiju razgovora, pa bi lozinka
+završila tamo.
 
 ### Varijable okruženja
 
@@ -109,6 +171,8 @@ prioritet nad sačuvanim tokenom:
 | `OLX_BASE_URL` | Promijeni API adresu (podrazumijevano `https://api.olx.ba`) |
 | `OLX_MCP_CONFIG_DIR` | Promijeni gdje se čuva `auth.json` |
 | `OLX_TIMEOUT_MS` | Timeout po zahtjevu prema OLX-u (podrazumijevano `30000`) |
+| `OLX_NO_ELICIT` | Postavljena isključuje prijavu kroz prozorčić MCP klijenta |
+| `OLX_ELICIT_TIMEOUT_MS` | Koliko se čeka na taj prozorčić (podrazumijevano `300000`, 5 minuta) |
 
 ## Alati
 
@@ -135,6 +199,15 @@ prioritet nad sačuvanim tokenom:
 Samo `olx_search_listings` radi bez prijave; sve ostalo traži token.
 
 ## Objavljivanje oglasa
+
+```mermaid
+flowchart LR
+  A["olx_suggest_category<br/>nađi category_id"] --> B["olx_category_attributes<br/>koji atributi trebaju"]
+  B --> C["olx_create_listing<br/>status DRAFT"]
+  C --> D["olx_upload_listing_images<br/>fajlovi i/ili URL-ovi"]
+  D --> E["olx_publish_listing<br/>oglas je javan"]
+  C -.->|"olx_update_listing nad DRAFT-om ga objavi"| E
+```
 
 1. `olx_suggest_category`: nađite `category_id` na osnovu opisa artikla.
 2. `olx_category_attributes`: pogledajte koje atribute ta kategorija traži.

@@ -53,7 +53,9 @@ export const registerAuthTools: Registrar = (server, olx) => {
 		},
 		async () => {
 			const configured = await olx.describeAuth();
-			if (!(await olx.hasCredentials()))
+			// With a prompt available, fall through to /me so the client's login dialog opens
+			// instead of reporting a dead end the user would have to fix in a terminal.
+			if (!(await olx.hasCredentials()) && !olx.canPromptLogin)
 				return {
 					base_url: olx.baseUrl,
 					credential: configured,

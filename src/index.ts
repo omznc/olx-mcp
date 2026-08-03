@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { runCli } from "./cli.ts";
 import { OlxClient } from "./client.ts";
+import { elicitLogin } from "./elicit.ts";
 import { registerAuthTools } from "./tools/auth.ts";
 import { registerCategoryTools } from "./tools/categories.ts";
 import { registerListingTools } from "./tools/listings.ts";
@@ -31,13 +32,20 @@ const server = new McpServer(
 			"irreversible. A DRAFT listing is not a safe scratchpad: olx_update_listing publishes it, " +
 			"just like olx_publish_listing, so only create listings the user agreed to post and get " +
 			"the content right in olx_create_listing itself.\n\n" +
-			"Auth: everything except olx_search_listings needs a login. If tools fail with an auth " +
-			"error, tell the user to run `olx-mcp login` in a terminal and restart this server. " +
-			"That is preferable to olx_login, which would put their password in the transcript.\n\n" +
+			"Auth: everything except olx_search_listings needs a login. When none is configured, the " +
+			"first such tool call asks the user for credentials through this client's own login " +
+			"dialog and saves a token, so just call the tool. If that is unavailable and tools " +
+			"fail with an auth error, tell the user to run `olx-mcp login` in a terminal and " +
+			"restart this server. Either way is preferable to olx_login, which would put their " +
+			"password in the transcript.\n\n" +
 			"All prices are in KM (BAM). OLX returns 403 or 404 for endpoints the account lacks " +
 			"permission for, so a 404 does not always mean the resource is missing.",
 	},
 );
+
+// Elicitation only works once the client has told us it supports it, which happens during
+// initialize, so the prompt checks that capability lazily rather than here.
+olx.setLoginPrompt(elicitLogin(server));
 
 registerAuthTools(server, olx);
 registerSearchTools(server, olx);

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" role="img" aria-label="Primjer razgovora: pretraga oglasa preko olx-mcp">
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2dd4bf"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1000" height="560" rx="16" fill="#0b1220"/>
+  <rect x="0.5" y="0.5" width="999" height="559" rx="16" fill="none" stroke="#ffffff" stroke-opacity="0.10"/>
+
+  <!-- title bar -->
+  <rect x="1" y="1" width="998" height="48" rx="16" fill="#111a2e"/>
+  <rect x="1" y="33" width="998" height="16" fill="#111a2e"/>
+  <line x1="1" y1="49" x2="999" y2="49" stroke="#ffffff" stroke-opacity="0.10"/>
+  <circle cx="26" cy="25" r="6" fill="#f87171"/>
+  <circle cx="48" cy="25" r="6" fill="#fbbf24"/>
+  <circle cx="70" cy="25" r="6" fill="#4ade80"/>
+  <text x="96" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#94a3b8">claude — olx-mcp</text>
+
+  <!-- user message -->
+  <g>
+    <rect x="452" y="80" width="516" height="56" rx="14" fill="#1e293b" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="476" y="114" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="16" fill="#e2e8f0">Nađi mi polovni bicikl u Sarajevu do 400 KM.</text>
+  </g>
+
+  <!-- tool call 1 -->
+  <g transform="translate(32 168)">
+    <rect x="0" y="0" width="620" height="72" rx="12" fill="#0f1c2e" stroke="#2dd4bf" stroke-opacity="0.35"/>
+    <rect x="0" y="0" width="4" height="72" rx="2" fill="url(#accent)"/>
+    <text x="24" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">olx_search_listings</text>
+    <text x="24" y="54" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#94a3b8">{ "q": "bicikl", "price_to": 400, "state": "used" }</text>
+  </g>
+
+  <!-- tool result -->
+  <g transform="translate(32 256)">
+    <rect x="0" y="0" width="620" height="132" rx="12" fill="#0f172a" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="24" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#64748b">← 12 rezultata (sažetak)</text>
+    <g xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#cbd5e1">
+      <text x="24" y="56">#4821990  MTB 26"  340 KM   Sarajevo</text>
+      <text x="24" y="80">#4819774  Gradski bicikl  280 KM   Ilidža</text>
+      <text x="24" y="104">#4817310  Trek dječiji  150 KM   Vogošća</text>
+    </g>
+  </g>
+
+  <!-- assistant reply -->
+  <g transform="translate(32 408)">
+    <rect x="0" y="0" width="700" height="112" rx="14" fill="#111a2e" stroke="#ffffff" stroke-opacity="0.10"/>
+    <g font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="16" fill="#e2e8f0">
+      <text x="24" y="40">Tri oglasa u budžetu. Najbolji odnos cijene i stanja je</text>
+      <text x="24" y="68">MTB 26" za 340 KM u Sarajevu — objavljen prije 2 dana.</text>
+      <text x="24" y="96" fill="#94a3b8">Hoćeš da otvorim detalje tog oglasa?</text>
+    </g>
+  </g>
+</svg>

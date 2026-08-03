@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OlxApiError, OlxAuthError, OlxClient, OlxTimeoutError } from "../../src/client.ts";
 
 type Reply =
@@ -165,6 +168,124 @@ describe("credential precedence", () => {
 		stubFetch([]);
 		await expect(new OlxClient().get("/me")).rejects.toBeInstanceOf(OlxAuthError);
 		expect(calls).toHaveLength(0);
+	});
+});
+
+describe("interactive login prompt", () => {
+	/** Records how often it was asked, so the dedupe can be checked. */
+	function stubPrompt(answers: ({ username: string; password: string } | null)[]) {
+		const asked: number[] = [];
+		const prompt = async () => {
+			asked.push(asked.length);
+			return answers[asked.length - 1] ?? null;
+		};
+		return { prompt, asked };
+	}
+
+	test("asks for credentials when nothing is configured, then saves the token", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		stubFetch([
+			{ status: 200, body: { token: "fresh", user: { username: "user" } } },
+			{ status: 200, body: { data: { id: 7 } } },
+		]);
+		const { prompt, asked } = stubPrompt([{ username: "user", password: "pw" }]);
+
+		const client = new OlxClient();
+		client.setLoginPrompt(prompt);
+
+		expect(await client.get<unknown>("/me")).toEqual({ data: { id: 7 } });
+		expect(asked).toHaveLength(1);
+		expect(bearer(calls[1] as Call)).toBe("Bearer fresh");
+		// Persisted, so the next process starts logged in — unlike a token from env credentials.
+		const saved = JSON.parse(await readFile(join(dir, "auth.json"), "utf8"));
+		expect(saved.token).toBe("fresh");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("env credentials win, so a configured server never opens a dialog", async () => {
+		process.env.OLX_USERNAME = "envuser";
+		process.env.OLX_PASSWORD = "envpw";
+		stubFetch([
+			{ status: 200, body: { token: "envtoken", user: {} } },
+			{ status: 200, body: { data: {} } },
+		]);
+		const { prompt, asked } = stubPrompt([{ username: "user", password: "pw" }]);
+
+		const client = new OlxClient();
+		client.setLoginPrompt(prompt);
+		await client.get("/me");
+
+		expect(asked).toHaveLength(0);
+	});
+
+	test("a dismissed dialog fails the call the same way as no credentials", async () => {
+		stubFetch([]);
+		const client = new OlxClient();
+		client.setLoginPrompt(async () => null);
+
+		await expect(client.get("/me")).rejects.toThrow(/Not logged in/);
+		expect(calls).toHaveLength(0);
+	});
+
+	test("wrong credentials from the dialog surface as an auth error", async () => {
+		stubFetch([{ status: 422, body: { message: "These credentials do not match our records." } }]);
+		const { prompt } = stubPrompt([{ username: "user", password: "wrong" }]);
+
+		const client = new OlxClient();
+		client.setLoginPrompt(prompt);
+
+		await expect(client.get("/me")).rejects.toBeInstanceOf(OlxAuthError);
+	});
+
+	test("an expired saved token re-prompts and retries the request", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		stubFetch([
+			{ status: 401 },
+			{ status: 200, body: { token: "second", user: {} } },
+			{ status: 200, body: { data: { id: 7 } } },
+		]);
+		const { prompt, asked } = stubPrompt([{ username: "user", password: "pw" }]);
+
+		const client = new OlxClient();
+		client.setToken("expired");
+		client.setLoginPrompt(prompt);
+
+		expect(await client.get<unknown>("/me")).toEqual({ data: { id: 7 } });
+		expect(asked).toHaveLength(1);
+		expect(bearer(calls[2] as Call)).toBe("Bearer second");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("parallel calls share one dialog rather than stacking prompts", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		stubFetch([
+			{ status: 200, body: { token: "fresh", user: {} } },
+			{ status: 200, body: { data: { a: 1 } } },
+			{ status: 200, body: { data: { b: 2 } } },
+		]);
+		const { prompt, asked } = stubPrompt([{ username: "user", password: "pw" }]);
+
+		const client = new OlxClient();
+		client.setLoginPrompt(prompt);
+		await Promise.all([client.get("/me"), client.get("/categories")]);
+
+		expect(asked).toHaveLength(1);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("canPromptLogin follows what the prompt reports", () => {
+		const client = new OlxClient();
+		expect(client.canPromptLogin).toBe(false);
+
+		const unavailable = Object.assign(async () => null, { available: () => false });
+		client.setLoginPrompt(unavailable);
+		expect(client.canPromptLogin).toBe(false);
+
+		client.setLoginPrompt(Object.assign(async () => null, { available: () => true }));
+		expect(client.canPromptLogin).toBe(true);
 	});
 });
 

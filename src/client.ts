@@ -7,10 +7,11 @@
  *   3. The saved token from `olx-mcp login` (see auth-store.ts)
  *   4. OLX_USERNAME + OLX_PASSWORD      -> lazy POST /auth/login
  *   5. OLX_CLIENT_ID + OLX_CLIENT_TOKEN -> legacy OLX-CLIENT-* headers
+ *   6. A login prompt, if one is installed (see elicit.ts) -> POST /auth/login, token persisted
  *
  * Env vars win over the saved token so CI and headless setups can override a local login.
  *
- * Only (4) can mint a fresh token, so it is the one setup that survives an expiry on its own:
+ * (4) and (6) can mint a fresh token, so they are the setups that survive an expiry on their own:
  * when OLX rejects the token, the request re-logs in once and retries. The others surface an
  * OlxAuthError telling the user to log in again.
  */
@@ -97,7 +98,22 @@ function retryAfterMs(response: Response): number | null {
 const NOT_LOGGED_IN =
 	"Not logged in to OLX. Run `npx -y @omznc/olx-mcp login` in a terminal " +
 	"(it prompts for your username and password and saves a token), then restart this MCP server. " +
-	"Alternatively set OLX_TOKEN or OLX_USERNAME + OLX_PASSWORD in the server env.";
+	"Alternatively set OLX_TOKEN or OLX_USERNAME + OLX_PASSWORD in the server env. " +
+	"(This client cannot show a login dialog, or the dialog was dismissed.)";
+
+export interface Credentials {
+	username: string;
+	password: string;
+}
+
+/**
+ * Collects credentials interactively. Returns null when no prompt is possible or the user
+ * dismissed it, which leaves the request to fail with NOT_LOGGED_IN. `available` reports whether
+ * asking could work at all, which is only known once the client has announced its capabilities.
+ */
+export type LoginPrompt = (() => Promise<Credentials | null>) & {
+	available?: () => boolean;
+};
 
 export class OlxClient {
 	/** Token held in memory: from OLX_TOKEN, a runtime login, or the saved auth file. */
@@ -106,6 +122,8 @@ export class OlxClient {
 	private storeChecked = false;
 	/** In-flight login promise, so concurrent calls share one login round-trip. */
 	private loginInFlight: Promise<string> | null = null;
+	/** Installed by the server when the MCP client can show a login dialog. */
+	private loginPrompt: LoginPrompt | null = null;
 
 	get baseUrl() {
 		return BASE_URL;
@@ -143,6 +161,15 @@ export class OlxClient {
 		return "not logged in";
 	}
 
+	setLoginPrompt(prompt: LoginPrompt | null) {
+		this.loginPrompt = prompt;
+	}
+
+	/** True when a missing credential can still be collected interactively. */
+	get canPromptLogin(): boolean {
+		return this.loginPrompt ? (this.loginPrompt.available?.() ?? true) : false;
+	}
+
 	setToken(token: string) {
 		this.token = token || null;
 		this.storeChecked = true;
@@ -161,12 +188,22 @@ export class OlxClient {
 	}
 
 	/**
-	 * The new token is deliberately not persisted: the auth file belongs to `olx-mcp login`,
-	 * and a process running on env credentials should not rewrite it behind the user's back.
+	 * A token minted from env credentials is deliberately not persisted: the auth file belongs to
+	 * `olx-mcp login`, and a process running on env credentials should not rewrite it behind the
+	 * user's back. A token the user just typed into a dialog is persisted, same as `login`.
 	 */
 	private async reauthenticate(): Promise<boolean> {
 		const credentials = this.renewableCredentials();
-		if (!credentials) return false;
+		if (!credentials) {
+			// An expired saved token can be replaced by asking for a new login.
+			if (!this.loginPrompt) return false;
+			this.clearToken();
+			try {
+				return (await this.promptForToken()) !== null;
+			} catch {
+				return false;
+			}
+		}
 		this.clearToken();
 		try {
 			await this.login(credentials.username, credentials.password);
@@ -174,6 +211,23 @@ export class OlxClient {
 		} catch {
 			// Re-login failed too, so let the caller report the original 401.
 			return false;
+		}
+	}
+
+	/** Asks the MCP client for credentials and exchanges them for a saved token. */
+	private async promptForToken(): Promise<string | null> {
+		const credentials = await this.loginPrompt?.();
+		if (!credentials) return null;
+		try {
+			const result = await this.login(credentials.username, credentials.password, {
+				persist: true,
+			});
+			return result.token;
+		} catch (error) {
+			// A wrong password comes back as a 422; say so as an auth failure rather than an API one.
+			throw new OlxAuthError(
+				`OLX rejected that login: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 
@@ -202,20 +256,25 @@ export class OlxClient {
 		return result;
 	}
 
-	/** Resolves a bearer token, logging in with env credentials if needed. */
+	/** Resolves a bearer token, logging in with env credentials or a prompt if needed. */
 	private async ensureToken(): Promise<string> {
 		await this.loadStoredToken();
 		if (this.token) return this.token;
 
-		const credentials = this.renewableCredentials();
-		if (!credentials) throw new OlxAuthError(NOT_LOGGED_IN);
-
-		this.loginInFlight ??= this.login(credentials.username, credentials.password)
-			.then((r) => r.token)
-			.finally(() => {
-				this.loginInFlight = null;
-			});
+		this.loginInFlight ??= this.acquireToken().finally(() => {
+			this.loginInFlight = null;
+		});
 		return this.loginInFlight;
+	}
+
+	private async acquireToken(): Promise<string> {
+		const credentials = this.renewableCredentials();
+		if (credentials) return (await this.login(credentials.username, credentials.password)).token;
+
+		const prompted = await this.promptForToken();
+		if (prompted) return prompted;
+
+		throw new OlxAuthError(NOT_LOGGED_IN);
 	}
 
 	private async authHeaders(): Promise<Record<string, string>> {
