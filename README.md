@@ -13,6 +13,17 @@ npx -y @omznc/olx-mcp login
 
 Prva komanda registruje server, druga vas prijavi na OLX. Nakon prijave restartujte Claude Code.
 
+Druga opcija je bez terminalske prijave: podatke stavite u konfiguraciju samog servera.
+
+```sh
+claude mcp add olx -e OLX_USERNAME=vase.ime -e OLX_PASSWORD=vasa.lozinka -- npx -y @omznc/olx-mcp
+```
+
+Server se tada prijavi sam pri prvom pozivu i sam obnovi token kad istekne, pa nema `login`
+koraka ni restarta. Razlika je gdje stoji lozinka: ovako ostaje zapisana u konfiguraciji MCP
+klijenta u čitljivom obliku, dok `login` iz terminala sačuva samo token. Oba načina rade, birajte
+po tome šta vam više odgovara.
+
 Radi sa Node.js 18+ ili Bunom. `npx` je samo najčešće dostupan; ako koristite Bun, `bunx` radi
 isto tako.
 
@@ -27,6 +38,24 @@ Server je običan stdio MCP server, pa u konfiguraciju klijenta ide:
     "olx": {
       "command": "npx",
       "args": ["-y", "@omznc/olx-mcp"]
+    }
+  }
+}
+```
+
+Isto vrijedi i ovdje: ili se prijavite iz terminala (`npx -y @omznc/olx-mcp login`), ili dodajte
+podatke u `env` iste konfiguracije:
+
+```json
+{
+  "mcpServers": {
+    "olx": {
+      "command": "npx",
+      "args": ["-y", "@omznc/olx-mcp"],
+      "env": {
+        "OLX_USERNAME": "vase.ime",
+        "OLX_PASSWORD": "vasa.lozinka"
+      }
     }
   }
 }
@@ -64,17 +93,18 @@ Lozinka se ne ispisuje dok se kuca i nigdje se ne čuva. Sačuva se samo token k
 
 Na Linuxu i macOS-u fajl dobija dozvole `600`, pa ga čita samo vaš korisnik.
 
-Zato se prijavljujte iz terminala, a ne kroz `olx_login` alat u razgovoru: argumenti alata se
-zapisuju u historiju razgovora, pa bi lozinka završila tamo.
+Prijavljujte se iz terminala ili preko varijabli okruženja ispod, a ne kroz `olx_login` alat u
+razgovoru: argumenti alata se zapisuju u historiju razgovora, pa bi lozinka završila tamo.
 
 ### Varijable okruženja
 
-Za CI, servere i slične slučajeve bez terminala. Imaju prioritet nad sačuvanim tokenom:
+Idu u `env` konfiguracije MCP servera, ili u okruženje procesa kod CI-ja i sličnog. Imaju
+prioritet nad sačuvanim tokenom:
 
 | Varijabla | Opis |
 | --- | --- |
 | `OLX_TOKEN` | Gotov bearer token |
-| `OLX_USERNAME` + `OLX_PASSWORD` | Server se sam prijavi pri prvom pozivu |
+| `OLX_USERNAME` + `OLX_PASSWORD` | Server se sam prijavi pri prvom pozivu i obnovi token kad istekne |
 | `OLX_CLIENT_ID` + `OLX_CLIENT_TOKEN` | Stari način autentikacije |
 | `OLX_BASE_URL` | Promijeni API adresu (podrazumijevano `https://api.olx.ba`) |
 | `OLX_MCP_CONFIG_DIR` | Promijeni gdje se čuva `auth.json` |
