@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { READS, tool } from "./helpers.ts";
 import { compactListingList, compactMe, fullFlag } from "./shape.ts";
 
 const STATES = {
@@ -17,6 +17,7 @@ export const registerUserTools: Registrar = (server, olx) => {
 		"olx_me",
 		{
 			title: "Get the authenticated user",
+			annotations: READS,
 			description:
 				"GET /me: the account the current token belongs to. Returns the identity, contact " +
 				"and credit-balance fields; pass full=true to also get notification settings, " +
@@ -34,6 +35,7 @@ export const registerUserTools: Registrar = (server, olx) => {
 		"olx_user_listings",
 		{
 			title: "List a user's listings",
+			annotations: READS,
 			description:
 				"List a user's listings in a given state. Wraps the five documented endpoints:\n" +
 				"  active   -> GET /users/:username/listings\n" +
@@ -54,11 +56,18 @@ export const registerUserTools: Registrar = (server, olx) => {
 					.default("active")
 					.describe("Which set of listings to return"),
 				page: z.number().int().min(1).optional().describe("Page number, 1-based"),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(50)
+					.optional()
+					.describe("Results per page. Keep it small to save context."),
 				full: fullFlag,
 			},
 		},
-		async ({ user, state = "active", page, full }) => {
-			const payload = await olx.get(STATES[state as keyof typeof STATES](String(user)), { page });
+		async ({ user, state = "active", page, per_page, full }) => {
+			const payload = await olx.get(STATES[state](String(user)), { page, per_page });
 			return full ? payload : compactListingList(payload);
 		},
 	);

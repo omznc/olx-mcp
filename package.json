@@ -1,7 +1,7 @@
 {
-  "name": "olx-mcp",
+  "name": "@omznc/olx-mcp",
   "version": "1.0.0",
-  "description": "MCP server za OLX.ba API",
+  "description": "MCP server for the OLX.ba marketplace API",
   "type": "module",
   "license": "MIT",
   "author": "omznc",
@@ -10,6 +10,9 @@
     "url": "git+https://github.com/omznc/olx-mcp.git"
   },
   "homepage": "https://github.com/omznc/olx-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/omznc/olx-mcp/issues"
+  },
   "keywords": ["mcp", "olx", "olx.ba", "claude", "model-context-protocol"],
   "engines": {
     "node": ">=18"
@@ -17,11 +20,15 @@
   "bin": {
     "olx-mcp": "dist/index.js"
   },
-  "files": ["dist/index.js", "README.md"],
+  "files": ["dist/index.js", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "build": "bun run scripts/build.ts",
-    "test": "bun test",
+    "test": "bun run build && bun test",
+    "test:unit": "bun test test/unit",
     "typecheck": "tsc --noEmit",
     "prepack": "bun run build"
   },

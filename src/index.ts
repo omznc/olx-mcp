@@ -10,7 +10,6 @@ import { registerLocationTools } from "./tools/locations.ts";
 import { registerSearchTools } from "./tools/search.ts";
 import { registerSponsoredTools } from "./tools/sponsored.ts";
 import { registerUserTools } from "./tools/users.ts";
-import { autoUpdate } from "./update.ts";
 
 const exitCode = await runCli(process.argv.slice(2));
 if (exitCode !== null) process.exit(exitCode);
@@ -18,7 +17,7 @@ if (exitCode !== null) process.exit(exitCode);
 const olx = new OlxClient();
 
 const server = new McpServer(
-	{ name: "olx-mcp", version: process.env.OLX_MCP_VERSION ?? "1.0.0" },
+	{ name: "olx-mcp", version: process.env.OLX_MCP_VERSION ?? "dev" },
 	{
 		instructions:
 			"Tools for the OLX.ba marketplace API (https://api.olx.ba).\n\n" +
@@ -52,9 +51,3 @@ registerSponsoredTools(server, olx);
 console.error(`olx-mcp ready (base ${olx.baseUrl}, auth: ${await olx.describeAuth()})`);
 
 await server.connect(new StdioServerTransport());
-
-// After connect, so a slow GitHub round trip never delays the client's handshake. Only the
-// interesting outcomes are worth a line in the client's log.
-void autoUpdate().then((result) => {
-	if (result.state === "staged" || result.state === "failed") console.error(`olx-mcp: ${result.message}`);
-});

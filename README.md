@@ -7,8 +7,8 @@ klijentima) da pretražuje OLX, objavljuje i uređuje oglase, upravlja slikama i
 ## Instalacija
 
 ```sh
-claude mcp add olx -- npx -y github:omznc/olx-mcp
-npx -y github:omznc/olx-mcp login
+claude mcp add olx -- npx -y @omznc/olx-mcp
+npx -y @omznc/olx-mcp login
 ```
 
 Prva komanda registruje server, druga vas prijavi na OLX. Nakon prijave restartujte Claude Code.
@@ -26,7 +26,7 @@ Server je običan stdio MCP server, pa u konfiguraciju klijenta ide:
   "mcpServers": {
     "olx": {
       "command": "npx",
-      "args": ["-y", "github:omznc/olx-mcp"]
+      "args": ["-y", "@omznc/olx-mcp"]
     }
   }
 }
@@ -36,30 +36,23 @@ Server je običan stdio MCP server, pa u konfiguraciju klijenta ide:
 
 ## Ažuriranje
 
-Server se ažurira sam. Pri svakom pokretanju provjeri koji je zadnji commit na `main` i, ako je
-instalirana verzija starija, obriše svoj npx cache. Sljedeće pokretanje onda povuče novu verziju,
-pa je dovoljno restartovati MCP klijenta.
+Paket je na npm-u, pa `npx -y @omznc/olx-mcp` sam povuče zadnju objavljenu verziju. Dovoljno je
+restartovati MCP klijenta.
 
-Ručno, bez čekanja na restart:
+Ako `npx` drži staru verziju u cacheu, prisilite tačnu:
 
 ```sh
-npx -y github:omznc/olx-mcp update
+npx -y @omznc/olx-mcp@latest
 ```
-
-Provjera se radi u pozadini, nakon što se server javi klijentu, i ne može odgoditi ni prekinuti
-pokretanje. Isključuje se sa `OLX_MCP_NO_AUTO_UPDATE=1`.
-
-Ovo je potrebno jer `npx` zapamti commit sa kojeg je instalirao i poslije ga više ne provjerava:
-ponovno pokretanje `npx github:omznc/olx-mcp` samo po sebi nikad ne povuče noviju verziju.
 
 Prijava ostaje sačuvana; token je u `auth.json`, ne u cacheu.
 
 ## Prijava
 
 ```sh
-npx -y github:omznc/olx-mcp login     # traži korisničko ime i lozinku
-npx -y github:omznc/olx-mcp status    # provjeri da li prijava radi
-npx -y github:omznc/olx-mcp logout    # obriši sačuvani token
+npx -y @omznc/olx-mcp login     # traži korisničko ime i lozinku
+npx -y @omznc/olx-mcp status    # provjeri da li prijava radi
+npx -y @omznc/olx-mcp logout    # obriši sačuvani token
 ```
 
 Lozinka se ne ispisuje dok se kuca i nigdje se ne čuva. Sačuva se samo token koji OLX vrati:
@@ -85,7 +78,7 @@ Za CI, servere i slične slučajeve bez terminala. Imaju prioritet nad sačuvani
 | `OLX_CLIENT_ID` + `OLX_CLIENT_TOKEN` | Stari način autentikacije |
 | `OLX_BASE_URL` | Promijeni API adresu (podrazumijevano `https://api.olx.ba`) |
 | `OLX_MCP_CONFIG_DIR` | Promijeni gdje se čuva `auth.json` |
-| `OLX_MCP_NO_AUTO_UPDATE` | Isključi automatsku provjeru verzije |
+| `OLX_TIMEOUT_MS` | Timeout po zahtjevu prema OLX-u (podrazumijevano `30000`) |
 
 ## Alati
 
@@ -132,8 +125,11 @@ poslije.
 - `olx_publish_listing` čini oglas javno vidljivim na OLX-u.
 - `olx_update_listing` nad `DRAFT` oglasom ga takođe objavi, vidi gore.
 
-Opisi ovih alata upozoravaju model da prvo pita korisnika, ali to je uputa modelu, ne tehnička
-zabrana.
+Svaki alat nosi MCP anotacije (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+`openWorldHint`), pa MCP klijent može sam odlučiti šta pušta bez pitanja, a šta ne.
+`olx_delete_listing`, `olx_delete_listing_image`, `olx_sponsor_listing` i `olx_logout` su
+označeni kao destruktivni. Opisi alata uz to upozoravaju model da prvo pita korisnika, ali ni
+jedno ni drugo nije tehnička zabrana.
 
 ## Napomene
 
@@ -145,6 +141,11 @@ zabrana.
   sažetak, da ne troše kontekst modela. Svaki od njih prima `full: true` za sirovi OLX odgovor.
 - OLX vraća `403` ili `404` za endpointe za koje račun nema dozvolu, pa `404` ne znači uvijek da
   resurs ne postoji.
+- Zahtjevi imaju timeout (`OLX_TIMEOUT_MS`, podrazumijevano 30s). `429` i mrežne greške se
+  ponove sa kratkim backoffom; `5xx` se ponovi samo za `GET`, jer je upis možda već prošao.
+- Ako OLX odbije token, a postavljeni su `OLX_USERNAME` + `OLX_PASSWORD`, server se sam ponovo
+  prijavi i ponovi zahtjev. Sa samo `OLX_TOKEN` ili sačuvanim tokenom to nije moguće, pa treba
+  ponovo `olx-mcp login`.
 - Sve cijene su u KM (BAM).
 - Ovo je nezvaničan projekat i nije povezan sa OLX-om.
 
@@ -160,9 +161,15 @@ bun run typecheck
 bun run build        # bundluje src/ u dist/index.js
 ```
 
-`dist/index.js` je namjerno u repozitoriju: `npx github:omznc/olx-mcp` ga pokreće direktno iz
-klona, bez build koraka. Ako mijenjate `src/`, pokrenite `bun run build` i commitujte `dist/`.
-CI pada ako je `dist/` zastario.
+`bun test` prvo bundluje `src/` u `dist/index.js`, jer dio testova pokreće baš taj bundle pod
+Nodeom. `dist/` se ne commituje; objavljuje se na npm iz CI-ja kad se gurne `v*` tag.
+
+Testovi koji zovu live OLX API su isključeni po defaultu, da pad na OLX-ovoj strani ne obara
+nepovezan PR:
+
+```sh
+OLX_LIVE_TESTS=1 bun test
+```
 
 ## Licenca
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { READS, tool } from "./helpers.ts";
 import { compactCities, fullFlag } from "./shape.ts";
 
 export const registerLocationTools: Registrar = (server, olx) => {
@@ -9,6 +9,7 @@ export const registerLocationTools: Registrar = (server, olx) => {
 		"olx_cities",
 		{
 			title: "List cities",
+			annotations: READS,
 			description:
 				"GET /cities: every city in the country, grouped by entity and canton, as " +
 				"{id, name} pairs. Use the id as city_id. This is a long list, so if you already know " +
@@ -26,6 +27,7 @@ export const registerLocationTools: Registrar = (server, olx) => {
 		"olx_city",
 		{
 			title: "Get a city",
+			annotations: READS,
 			description:
 				"GET /cities/:id: detail for one city (zip code, coordinates, country/canton/state ids).",
 			inputSchema: { id: z.number().int().describe("City id") },
@@ -38,6 +40,7 @@ export const registerLocationTools: Registrar = (server, olx) => {
 		"olx_countries",
 		{
 			title: "List countries",
+			annotations: READS,
 			description: "GET /countries: all countries, with id, name and code. Use the id as country_id.",
 		},
 		() => olx.get("/countries"),
@@ -48,6 +51,7 @@ export const registerLocationTools: Registrar = (server, olx) => {
 		"olx_country_states",
 		{
 			title: "List country states",
+			annotations: READS,
 			description:
 				"GET /country-states: entities/states of Bosnia and Herzegovina, each with its cantons.",
 		},
@@ -59,6 +63,7 @@ export const registerLocationTools: Registrar = (server, olx) => {
 		"olx_canton_cities",
 		{
 			title: "List cities in a canton",
+			annotations: READS,
 			description:
 				"GET /cantons/:id/cities: cities in one canton, with coordinates. " +
 				"Canton ids come from olx_country_states.",

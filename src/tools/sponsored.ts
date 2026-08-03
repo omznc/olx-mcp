@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { DESTROYS, READS, tool, WRITES } from "./helpers.ts";
 
 const sponsorShape = {
 	id: z.number().int().describe("Listing id"),
@@ -34,6 +34,7 @@ export const registerSponsoredTools: Registrar = (server, olx) => {
 		"olx_sponsor_price",
 		{
 			title: "Price a sponsorship",
+			annotations: READS,
 			description:
 				"GET /listings/:id/sponsore/price: what a sponsorship configuration would cost, broken " +
 				"down into {search, refresh, locations, extras, total}. Always price a configuration " +
@@ -54,6 +55,7 @@ export const registerSponsoredTools: Registrar = (server, olx) => {
 		"olx_sponsor_listing",
 		{
 			title: "Sponsor a listing",
+			annotations: DESTROYS,
 			description:
 				"POST /listings/:id/sponsore: buy promotion for a listing. THIS SPENDS MONEY from the " +
 				"account's OLX balance. Check the cost with olx_sponsor_price and confirm with the user " +
@@ -69,6 +71,7 @@ export const registerSponsoredTools: Registrar = (server, olx) => {
 		"olx_set_discount",
 		{
 			title: "Set a listing discount",
+			annotations: WRITES,
 			description:
 				"POST /listings/:id/discount: run a discounted price on a listing for a fixed period. " +
 				"`price` is the new discounted price, not the amount off.",
@@ -88,6 +91,7 @@ export const registerSponsoredTools: Registrar = (server, olx) => {
 		"olx_finish_discount",
 		{
 			title: "End a listing discount",
+			annotations: WRITES,
 			description:
 				"POST /listings/:id/discount/finish: end an active discount early and restore the original price.",
 			inputSchema: { id: z.number().int().describe("Listing id") },

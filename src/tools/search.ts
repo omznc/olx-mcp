@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { READS, tool } from "./helpers.ts";
 import { compactListingList, fullFlag } from "./shape.ts";
 
 /**
@@ -15,6 +15,7 @@ export const registerSearchTools: Registrar = (server, olx) => {
 		"olx_search_listings",
 		{
 			title: "Search OLX listings",
+			annotations: READS,
 			description:
 				"GET /search: full-text search across public OLX listings, with category, price, " +
 				"location and condition filters. Returns {data, meta:{total, last_page, current_page, " +

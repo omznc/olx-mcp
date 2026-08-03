@@ -30,17 +30,17 @@ jobs:
 
       - run: bun run build
 
-      # dist/ is committed so `npx github:omznc/olx-mcp` works without a build step.
-      # Fail loudly if someone edited src/ and forgot to rebuild.
-      - name: Verify dist/ is up to date
-        run: |
-          if ! git diff --quiet -- dist/; then
-            echo "::error::dist/ is stale. Run 'bun run build' and commit the result."
-            git diff --stat -- dist/
-            exit 1
-          fi
-
+      # The default suite is hermetic; the tests that call the live OLX API are opt-in, so a
+      # slow or changed upstream cannot redden an unrelated pull request.
       - run: bun test
+
+      # Run the live suite on main and on tags only, where a real break is worth knowing about.
+      - name: Live API tests
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          OLX_LIVE_TESTS: "1"
+        run: bun test
 
   release:
     needs: test
@@ -48,12 +48,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Required for npm provenance attestations.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install -g npm@latest
 
       - run: bun install --frozen-lockfile
       - run: bun run build
@@ -67,7 +77,12 @@ jobs:
             exit 1
           fi
 
-      - name: Publish release
+      # Trusted publishing (OIDC): the id-token permission above is the credential, and npm
+      # attaches provenance by itself. bun publish does not support it.
+      - name: Publish to npm
+        run: npm publish
+
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

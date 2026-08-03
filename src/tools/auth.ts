@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authFilePath, clearAuth } from "../auth-store.ts";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { DESTROYS, READS, tool, WRITES_ONCE } from "./helpers.ts";
 import { compactMe } from "./shape.ts";
 
 export const registerAuthTools: Registrar = (server, olx) => {
@@ -10,6 +10,7 @@ export const registerAuthTools: Registrar = (server, olx) => {
 		"olx_login",
 		{
 			title: "Log in to OLX",
+			annotations: WRITES_ONCE,
 			description:
 				"POST /auth/login: exchange a username/email and password for a bearer token, saved " +
 				"for future sessions.\n\n" +
@@ -45,6 +46,7 @@ export const registerAuthTools: Registrar = (server, olx) => {
 		"olx_auth_status",
 		{
 			title: "Check OLX auth status",
+			annotations: READS,
 			description:
 				"Report which OLX credential this server is configured with and verify it by calling " +
 				"GET /me. Use this first when other tools return 401/403/404.",
@@ -77,13 +79,14 @@ export const registerAuthTools: Registrar = (server, olx) => {
 		"olx_logout",
 		{
 			title: "Log out of OLX",
+			annotations: { ...DESTROYS, openWorldHint: false },
 			description:
 				"Delete the saved OLX token from disk. Does not revoke the token on OLX's side. " +
 				"reset it in your OLX account settings if you think it was compromised.",
 		},
 		async () => {
 			const removed = await clearAuth();
-			olx.setToken("");
+			olx.clearToken();
 			return {
 				removed,
 				auth_file: authFilePath(),

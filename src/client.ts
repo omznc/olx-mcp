@@ -9,10 +9,17 @@
  *   5. OLX_CLIENT_ID + OLX_CLIENT_TOKEN -> legacy OLX-CLIENT-* headers
  *
  * Env vars win over the saved token so CI and headless setups can override a local login.
+ *
+ * Only (4) can mint a fresh token, so it is the one setup that survives an expiry on its own:
+ * when OLX rejects the token, the request re-logs in once and retries. The others surface an
+ * OlxAuthError telling the user to log in again.
  */
 import { readAuth, writeAuth } from "./auth-store.ts";
 
 const BASE_URL = process.env.OLX_BASE_URL ?? "https://api.olx.ba";
+
+const TIMEOUT_MS = Number(process.env.OLX_TIMEOUT_MS ?? 30_000);
+const MAX_RETRIES = 2;
 
 export class OlxApiError extends Error {
 	constructor(
@@ -37,6 +44,20 @@ export class OlxAuthError extends Error {
 	}
 }
 
+export class OlxTimeoutError extends Error {
+	constructor(
+		readonly method: string,
+		readonly path: string,
+		readonly timeoutMs: number,
+	) {
+		super(
+			`OLX API ${method} ${path} did not respond within ${timeoutMs}ms. ` +
+				"OLX may be slow or unreachable; try again, or raise OLX_TIMEOUT_MS.",
+		);
+		this.name = "OlxTimeoutError";
+	}
+}
+
 export interface LoginResult {
 	token: string;
 	user: {
@@ -51,8 +72,30 @@ export interface LoginResult {
 
 type Query = Record<string, string | number | boolean | undefined | null>;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const backoffMs = (attempt: number) => 500 * 2 ** attempt;
+
+function isTimeout(error: unknown): boolean {
+	return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
+/** A 5xx may already have applied the write, so only GET is repeated. */
+function retryable(method: string, status: number): boolean {
+	if (status === 429) return true;
+	return status >= 500 && method === "GET";
+}
+
+function retryAfterMs(response: Response): number | null {
+	const header = response.headers.get("retry-after");
+	if (!header) return null;
+	const seconds = Number(header);
+	const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+	return Number.isFinite(ms) && ms > 0 ? Math.min(ms, 10_000) : null;
+}
+
 const NOT_LOGGED_IN =
-	"Not logged in to OLX. Run `npx -y github:omznc/olx-mcp login` in a terminal " +
+	"Not logged in to OLX. Run `npx -y @omznc/olx-mcp login` in a terminal " +
 	"(it prompts for your username and password and saves a token), then restart this MCP server. " +
 	"Alternatively set OLX_TOKEN or OLX_USERNAME + OLX_PASSWORD in the server env.";
 
@@ -101,8 +144,37 @@ export class OlxClient {
 	}
 
 	setToken(token: string) {
-		this.token = token;
+		this.token = token || null;
 		this.storeChecked = true;
+	}
+
+	clearToken() {
+		this.token = null;
+		// Marked as read, so the token just cleared is not reloaded from disk.
+		this.storeChecked = true;
+	}
+
+	private renewableCredentials(): { username: string; password: string } | null {
+		const username = process.env.OLX_USERNAME;
+		const password = process.env.OLX_PASSWORD;
+		return username && password ? { username, password } : null;
+	}
+
+	/**
+	 * The new token is deliberately not persisted: the auth file belongs to `olx-mcp login`,
+	 * and a process running on env credentials should not rewrite it behind the user's back.
+	 */
+	private async reauthenticate(): Promise<boolean> {
+		const credentials = this.renewableCredentials();
+		if (!credentials) return false;
+		this.clearToken();
+		try {
+			await this.login(credentials.username, credentials.password);
+			return true;
+		} catch {
+			// Re-login failed too, so let the caller report the original 401.
+			return false;
+		}
 	}
 
 	/**
@@ -135,11 +207,10 @@ export class OlxClient {
 		await this.loadStoredToken();
 		if (this.token) return this.token;
 
-		const username = process.env.OLX_USERNAME;
-		const password = process.env.OLX_PASSWORD;
-		if (!username || !password) throw new OlxAuthError(NOT_LOGGED_IN);
+		const credentials = this.renewableCredentials();
+		if (!credentials) throw new OlxAuthError(NOT_LOGGED_IN);
 
-		this.loginInFlight ??= this.login(username, password)
+		this.loginInFlight ??= this.login(credentials.username, credentials.password)
 			.then((r) => r.token)
 			.finally(() => {
 				this.loginInFlight = null;
@@ -148,15 +219,13 @@ export class OlxClient {
 	}
 
 	private async authHeaders(): Promise<Record<string, string>> {
+		// Before reading this.token: on the first request the saved token is not loaded yet,
+		// and without this a saved token would lose to the legacy header pair.
+		await this.loadStoredToken();
 		const clientId = process.env.OLX_CLIENT_ID;
 		const clientToken = process.env.OLX_CLIENT_TOKEN;
 		// Legacy header pair only applies when no bearer credential exists at all.
-		if (
-			!this.token &&
-			!(process.env.OLX_USERNAME && process.env.OLX_PASSWORD) &&
-			clientId &&
-			clientToken
-		) {
+		if (!this.token && !this.renewableCredentials() && clientId && clientToken) {
 			return { "OLX-CLIENT-ID": clientId, "OLX-CLIENT-TOKEN": clientToken };
 		}
 		return { Authorization: `Bearer ${await this.ensureToken()}` };
@@ -180,40 +249,74 @@ export class OlxClient {
 				url.searchParams.set(key, String(value));
 		}
 
-		const headers: Record<string, string> = { Accept: "application/json" };
-		if (auth) Object.assign(headers, await this.authHeaders());
+		// One re-login per request at most, so a permanently invalid credential cannot loop.
+		let authRetried = false;
+		let attempt = 0;
 
-		let payload: FormData | string | undefined;
-		if (formData) {
-			payload = formData; // fetch sets the multipart boundary itself
-		} else if (body !== undefined) {
-			headers["Content-Type"] = "application/json";
-			payload = JSON.stringify(body);
-		}
+		for (;;) {
+			const headers: Record<string, string> = { Accept: "application/json" };
+			if (auth) Object.assign(headers, await this.authHeaders());
 
-		const response = await fetch(url, { method, headers, body: payload });
-		const text = await response.text();
-
-		let parsed: unknown = text;
-		if (text) {
-			try {
-				parsed = JSON.parse(text);
-			} catch {
-				// Non-JSON body (HTML error page, plain text). Pass it through as-is.
+			let payload: FormData | string | undefined;
+			if (formData) {
+				payload = formData; // fetch sets the multipart boundary itself
+			} else if (body !== undefined) {
+				headers["Content-Type"] = "application/json";
+				payload = JSON.stringify(body);
 			}
-		}
 
-		if (!response.ok) {
-			// A stale cached token is worth surfacing explicitly; it is the most common failure.
-			if (response.status === 401 && this.token)
+			let response: Response;
+			try {
+				response = await fetch(url, {
+					method,
+					headers,
+					body: payload,
+					signal: AbortSignal.timeout(TIMEOUT_MS),
+				});
+			} catch (error) {
+				// Only GET is safe to repeat blindly.
+				if (method === "GET" && attempt < MAX_RETRIES) {
+					await sleep(backoffMs(attempt++));
+					continue;
+				}
+				if (isTimeout(error)) throw new OlxTimeoutError(method, path, TIMEOUT_MS);
+				throw error;
+			}
+
+			const text = await response.text();
+
+			let parsed: unknown = text;
+			if (text) {
+				try {
+					parsed = JSON.parse(text);
+				} catch {
+					// Non-JSON body (HTML error page, plain text). Pass it through as-is.
+				}
+			}
+
+			if (response.ok) return parsed as T;
+
+			if (response.status === 401 && auth && !authRetried) {
+				authRetried = true;
+				if (await this.reauthenticate()) continue;
+			}
+
+			if (retryable(method, response.status) && attempt < MAX_RETRIES) {
+				const delay = retryAfterMs(response) ?? backoffMs(attempt);
+				attempt++;
+				await sleep(delay);
+				continue;
+			}
+
+			// Includes the case where the re-login above cleared the rejected token.
+			if (response.status === 401 && auth)
 				throw new OlxAuthError(
 					`OLX API rejected the token (HTTP 401 on ${method} ${path}). ` +
-						"It may have expired. Call olx_login again or refresh OLX_TOKEN.",
+						"It may have expired. Run `olx-mcp login` again, or refresh OLX_TOKEN. " +
+						"With OLX_USERNAME and OLX_PASSWORD set, the server renews the token itself.",
 				);
 			throw new OlxApiError(response.status, method, path, parsed);
 		}
-
-		return parsed as T;
 	}
 
 	get<T = unknown>(path: string, query?: Query, auth = true) {

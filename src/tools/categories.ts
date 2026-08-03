@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { READS, tool } from "./helpers.ts";
 import { compactAttributes, compactCategories, fullFlag } from "./shape.ts";
 
 export const registerCategoryTools: Registrar = (server, olx) => {
@@ -9,6 +9,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_categories",
 		{
 			title: "List categories",
+			annotations: READS,
 			description:
 				"GET /categories, or GET /categories/:id for the children of one category. " +
 				"Call without arguments to get the top-level tree, then drill down by parent_id.",
@@ -34,6 +35,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_category",
 		{
 			title: "Get one category",
+			annotations: READS,
 			description: "GET /category/:id: full detail for a single category.",
 			inputSchema: { id: z.number().int().describe("Category id") },
 		},
@@ -45,6 +47,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_category_attributes",
 		{
 			title: "Get category attributes",
+			annotations: READS,
 			description:
 				"GET /categories/:id/attributes: the attribute schema for a category (id, name, " +
 				"input_type, options, required). Call this before olx_create_listing so you know " +
@@ -62,6 +65,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_category_brands",
 		{
 			title: "List category brands",
+			annotations: READS,
 			description:
 				"GET /categories/:id/brands: brands available in a category (cars, phones, and similar).",
 			inputSchema: { id: z.number().int().describe("Category id") },
@@ -74,6 +78,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_category_brand_models",
 		{
 			title: "List brand models",
+			annotations: READS,
 			description:
 				"GET /categories/:id/brands/:brand_id/models: models for a brand within a category.",
 			inputSchema: {
@@ -89,6 +94,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_suggest_category",
 		{
 			title: "Suggest a category from a keyword",
+			annotations: READS,
 			description:
 				"GET /categories/suggest?keyword=: suggest categories for free text describing an item. " +
 				"The best way to pick a category_id when creating a listing.",
@@ -104,6 +110,7 @@ export const registerCategoryTools: Registrar = (server, olx) => {
 		"olx_find_category",
 		{
 			title: "Find a category by name",
+			annotations: READS,
 			description:
 				"GET /categories/find?name=: look up categories by name, returning each match with " +
 				"its full path in the tree.",

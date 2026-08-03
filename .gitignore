@@ -3,11 +3,8 @@ node_modules
 
 # output
 out
+dist
 *.tgz
-
-# dist/index.js is committed on purpose: `npx github:omznc/olx-mcp` runs it
-# straight from a clone, with no build step.
-!dist/index.js
 
 # code coverage
 coverage

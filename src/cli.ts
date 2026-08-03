@@ -1,5 +1,5 @@
 /**
- * Terminal subcommands: `login`, `logout`, `status`, `update`.
+ * Terminal subcommands: `login`, `logout`, `status`.
  *
  * Logging in from a terminal rather than from an MCP tool call keeps the password out of both
  * shell history (it is never an argument) and the chat transcript (tool arguments are recorded).
@@ -7,7 +7,6 @@
 import { createInterface } from "node:readline";
 import { OlxAuthError, OlxClient } from "./client.ts";
 import { authFilePath, clearAuth, readAuth } from "./auth-store.ts";
-import { autoUpdate } from "./update.ts";
 
 /** Reads a line from stdin, echoing nothing when `mask` is set. */
 function prompt(question: string, mask = false): Promise<string> {
@@ -110,12 +109,6 @@ async function status(): Promise<number> {
 	}
 }
 
-async function update(): Promise<number> {
-	const result = await autoUpdate();
-	console.log(result.message);
-	return result.state === "failed" ? 1 : 0;
-}
-
 const USAGE = `olx-mcp: MCP server for the OLX.ba API
 
 Usage:
@@ -123,7 +116,6 @@ Usage:
   olx-mcp login        Log in and save a token
   olx-mcp logout       Delete the saved token
   olx-mcp status       Show and verify the current credential
-  olx-mcp update       Fetch the newest version, applied on the next start
 `;
 
 /** Returns an exit code when it handled a subcommand, or null to start the server. */
@@ -138,8 +130,6 @@ export async function runCli(argv: string[]): Promise<number | null> {
 			return logout();
 		case "status":
 			return status();
-		case "update":
-			return update();
 		case "-h":
 		case "--help":
 		case "help":

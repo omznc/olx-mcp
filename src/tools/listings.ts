@@ -2,8 +2,36 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { z } from "zod";
 import type { Registrar } from "./helpers.ts";
-import { tool } from "./helpers.ts";
+import { DESTROYS, READS, tool, WRITES, WRITES_ONCE } from "./helpers.ts";
 import { compactListing, fullFlag } from "./shape.ts";
+
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	png: "image/png",
+	gif: "image/gif",
+	webp: "image/webp",
+	avif: "image/avif",
+	heic: "image/heic",
+};
+
+/** A Blob with no type is sent as application/octet-stream, which OLX rejects. */
+function mimeFor(name: string): string {
+	const extension = name.split(".").pop()?.toLowerCase() ?? "";
+	return MIME_BY_EXTENSION[extension] ?? "image/jpeg";
+}
+
+function checkSize(bytes: number, source: string) {
+	if (bytes > MAX_IMAGE_BYTES)
+		throw new Error(
+			`${source} is ${Math.round(bytes / 1024 / 1024)}MB, over the ${
+				MAX_IMAGE_BYTES / 1024 / 1024
+			}MB per-image limit.`,
+		);
+}
 
 const attribute = z.object({
 	id: z.number().describe("Attribute id, from olx_category_attributes"),
@@ -18,6 +46,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_get_listing",
 		{
 			title: "Get a listing",
+			annotations: READS,
 			description:
 				"GET /listings/:id: fetch a single listing by its numeric id. Returns a summary of " +
 				"the listing; pass full=true for the complete OLX record.",
@@ -34,6 +63,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_create_listing",
 		{
 			title: "Create a listing",
+			annotations: WRITES_ONCE,
 			description:
 				"POST /listings: create a new listing. It starts in DRAFT status, but do not treat " +
 				"that as private: OLX publishes the listing on the first olx_update_listing call, " +
@@ -69,6 +99,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_update_listing",
 		{
 			title: "Update a listing",
+			annotations: WRITES,
 			description:
 				"PUT /listings/:id: update fields on an existing listing. Only the fields you pass " +
 				"are changed. Warning: on a DRAFT listing this also publishes it and the listing " +
@@ -94,6 +125,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_publish_listing",
 		{
 			title: "Publish a listing",
+			annotations: WRITES,
 			description:
 				"POST /listings/:id/publish: move a DRAFT listing to active so it appears publicly " +
 				"on OLX. Note that olx_update_listing publishes a draft too, so this is not the only " +
@@ -108,6 +140,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_delete_listing",
 		{
 			title: "Delete a listing",
+			annotations: DESTROYS,
 			description:
 				"DELETE /listings/:id: permanently delete a listing. This cannot be undone; " +
 				"prefer olx_hide_listing or olx_finish_listing if you may want it back.",
@@ -121,6 +154,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_finish_listing",
 		{
 			title: "Finish a listing",
+			annotations: WRITES,
 			description:
 				"POST /listings/:id/finish: mark a listing as finished/sold. It stops being active " +
 				"but stays in the account's finished listings.",
@@ -134,6 +168,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_hide_listing",
 		{
 			title: "Hide a listing",
+			annotations: WRITES,
 			description: "POST /listings/:id/hide: temporarily hide an active listing from public view.",
 			inputSchema: { id: z.number().int().describe("Listing id") },
 		},
@@ -145,6 +180,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_unhide_listing",
 		{
 			title: "Unhide a listing",
+			annotations: WRITES,
 			description: "POST /listings/:id/unhide: make a previously hidden listing visible again.",
 			inputSchema: { id: z.number().int().describe("Listing id") },
 		},
@@ -156,6 +192,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_refresh_listing",
 		{
 			title: "Refresh a listing",
+			annotations: WRITES_ONCE,
 			description:
 				"PUT /listings/:id/refresh: bump a listing back to the top of search results. " +
 				"Refreshes beyond the free allowance are charged; check olx_refresh_limits first.",
@@ -169,6 +206,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_refresh_limits",
 		{
 			title: "Get refresh limits",
+			annotations: READS,
 			description:
 				"GET /listing/refresh/limits: how many free and paid refreshes the account has used " +
 				"and has left ({free_limit, free_count, paid_count, listing_count}).",
@@ -181,6 +219,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_listing_limits",
 		{
 			title: "Get listing limits",
+			annotations: READS,
 			description:
 				"GET /listing-limits: per-segment listing quotas (cars, real-estate, other) with the " +
 				"limit and current listing count for each.",
@@ -193,6 +232,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_upload_listing_images",
 		{
 			title: "Upload listing images",
+			annotations: WRITES_ONCE,
 			description:
 				"POST /listings/:id/image-upload: attach images to a listing. Provide local file " +
 				"paths, remote image URLs, or both. Local files are read from disk and sent as " +
@@ -213,24 +253,47 @@ export const registerListingTools: Registrar = (server, olx) => {
 			if (file_paths.length === 0 && image_urls.length === 0)
 				throw new Error("Provide at least one of file_paths or image_urls.");
 
+			const parts = await Promise.all([
+				...file_paths.map(async (path) => {
+					let bytes: Buffer;
+					try {
+						bytes = await readFile(path);
+					} catch {
+						throw new Error(`Could not read file: ${path}`);
+					}
+					const name = basename(path);
+					checkSize(bytes.byteLength, name);
+					return { blob: new Blob([bytes], { type: mimeFor(name) }), name };
+				}),
+				...image_urls.map(async (url) => {
+					let response: Response;
+					try {
+						response = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+					} catch (error) {
+						throw new Error(
+							`Could not download ${url}: ${
+								error instanceof Error && error.name === "TimeoutError"
+									? `no response within ${DOWNLOAD_TIMEOUT_MS}ms`
+									: String(error)
+							}`,
+						);
+					}
+					if (!response.ok)
+						throw new Error(`Could not download ${url} (HTTP ${response.status}).`);
+
+					// Rejected on the advertised length, before buffering the whole body.
+					const declared = Number(response.headers.get("content-length"));
+					if (Number.isFinite(declared)) checkSize(declared, url);
+
+					const blob = await response.blob();
+					checkSize(blob.size, url);
+					const name = new URL(url).pathname.split("/").pop() || "image";
+					return { blob: blob.type ? blob : new Blob([blob], { type: mimeFor(name) }), name };
+				}),
+			]);
+
 			const form = new FormData();
-			for (const path of file_paths) {
-				let bytes: Buffer;
-				try {
-					bytes = await readFile(path);
-				} catch {
-					throw new Error(`Could not read file: ${path}`);
-				}
-				form.append("images[]", new Blob([bytes]), basename(path));
-			}
-			for (const url of image_urls) {
-				const response = await fetch(url);
-				if (!response.ok)
-					throw new Error(`Could not download ${url} (HTTP ${response.status}).`);
-				const blob = await response.blob();
-				const name = new URL(url).pathname.split("/").pop() || "image";
-				form.append("images[]", blob, name);
-			}
+			for (const { blob, name } of parts) form.append("images[]", blob, name);
 
 			return olx.request("POST", `/listings/${id}/image-upload`, { formData: form });
 		},
@@ -241,6 +304,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_delete_listing_image",
 		{
 			title: "Delete a listing image",
+			annotations: DESTROYS,
 			description: "POST /listings/:id/image-delete: remove one image from a listing.",
 			inputSchema: {
 				id: z.number().int().describe("Listing id"),
@@ -255,6 +319,7 @@ export const registerListingTools: Registrar = (server, olx) => {
 		"olx_set_main_listing_image",
 		{
 			title: "Set the main listing image",
+			annotations: WRITES,
 			description:
 				"POST /listings/:id/image-main: choose which uploaded image is the listing's cover photo.",
 			inputSchema: {
