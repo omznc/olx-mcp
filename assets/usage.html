@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!-- Source of usage-light.png and usage-dark.png. The rows are a real olx_search_listings
+     response from 2026-11-03. Render: google-chrome --headless=new --hide-scrollbars
+     --force-device-scale-factor=2 --window-size=820,352 --screenshot=usage-light.png usage.html
+     (append #dark to the URL for usage-dark.png). -->
+<html lang="bs">
+<meta charset="utf-8">
+<style>
+	:root {
+		--bg: #ffffff; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0; --code: #f1f5f9; --accent: #0d9488;
+		color-scheme: light;
+	}
+	:root.dark {
+		--bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --line: #30363d; --code: #161b22; --accent: #2dd4bf;
+		color-scheme: dark;
+	}
+	* { margin: 0; box-sizing: border-box; }
+	body {
+		width: 820px; height: 352px; padding: 28px 32px; background: var(--bg); color: var(--fg);
+		font: 15px/1.5 Inter, "Segoe UI", system-ui, sans-serif;
+	}
+	.ask { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+	.call {
+		font: 13px/1.6 "JetBrains Mono", ui-monospace, monospace; background: var(--code);
+		border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px;
+	}
+	.call b { color: var(--accent); font-weight: 600; }
+	.call span { color: var(--muted); }
+	table { width: 100%; border-collapse: collapse; }
+	td { padding: 7px 0; border-bottom: 1px solid var(--line); }
+	td.price { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+	td.id { color: var(--muted); font: 13px ui-monospace, monospace; width: 110px; }
+	.meta { margin-top: 12px; color: var(--muted); font-size: 13px; }
+</style>
+<script>if (location.hash === "#dark") document.documentElement.classList.add("dark");</script>
+<body>
+	<p class="ask">„Nađi mi polovni bicikl do 400 KM.”</p>
+	<p class="call"><b>olx_search_listings</b> <span>{ "q": "bicikl", "price_to": 400, "state": "used" }</span></p>
+	<table>
+		<tr><td class="id">#80844909</td><td>Bocikl Trek</td><td class="price">200 KM</td></tr>
+		<tr><td class="id">#80828507</td><td>Bicikla Coratec MTB</td><td class="price">400 KM</td></tr>
+		<tr><td class="id">#76053201</td><td>Biciklo Hercules elektricno</td><td class="price">300 KM</td></tr>
+		<tr><td class="id">#78229105</td><td>Biciklo exceed</td><td class="price">250 KM</td></tr>
+		<tr><td class="id">#68918980</td><td>Biciklo 26" dječije</td><td class="price">150 KM</td></tr>
+	</table>
+	<p class="meta">Prvih 5 od 9 028 rezultata · stvarni odgovor servera, 3. 11. 2026.</p>
+</body>
+</html>

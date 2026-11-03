@@ -1,20 +1,12 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
-    <img alt="olx-mcp — MCP server za OLX.ba" src="assets/banner-light.svg" width="900">
-  </picture>
-</p>
+# olx-mcp (vibe coded nije me briga)
 
-<p align="center">
+<p>
   <a href="https://www.npmjs.com/package/@omznc/olx-mcp"><img alt="npm" src="https://img.shields.io/npm/v/@omznc/olx-mcp?color=0d9488&label=npm"></a>
   <a href="https://www.npmjs.com/package/@omznc/olx-mcp"><img alt="preuzimanja" src="https://img.shields.io/npm/dm/@omznc/olx-mcp?color=0284c7&label=preuzimanja"></a>
   <a href="https://github.com/omznc/olx-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/omznc/olx-mcp/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="licenca" src="https://img.shields.io/npm/l/@omznc/olx-mcp?color=64748b&label=licenca"></a>
   <img alt="node" src="https://img.shields.io/node/v/@omznc/olx-mcp?color=334155">
 </p>
-
-# olx-mcp (vibe coded nije me briga)
 
 MCP server za [OLX.ba API](https://api-documentation.olx.ba/). Omogućava Claudeu (i drugim MCP
 klijentima) da pretražuje OLX, objavljuje i uređuje oglase, upravlja slikama i sponzorstvima.
@@ -24,9 +16,9 @@ klijentima) da pretražuje OLX, objavljuje i uređuje oglase, upravlja slikama i
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/usage-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/usage-light.svg">
-    <img alt="Primjer razgovora: pretraga oglasa preko olx-mcp" src="assets/usage-light.svg" width="820">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/usage-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/usage-light.png">
+    <img alt="Stvarni rezultat olx_search_listings za polovni bicikl do 400 KM" src="assets/usage-light.png" width="820">
   </picture>
 </p>
 
@@ -34,7 +26,7 @@ Nekoliko primjera šta možete tražiti kad je server dodan:
 
 | Vi kažete | Server odradi |
 | --- | --- |
-| „Nađi polovni bicikl u Sarajevu do 400 KM.” | `olx_search_listings` |
+| „Nađi polovni bicikl do 400 KM.” | `olx_search_listings` |
 | „Koliko košta da sponzorišem oglas 4821990 na 7 dana?” | `olx_sponsor_price` |
 | „Objavi oglas za Trek bicikl, 340 KM, ove tri slike.” | `olx_suggest_category` → `olx_create_listing` → `olx_upload_listing_images` → `olx_publish_listing` |
 | „Koji moji oglasi su istekli?” | `olx_user_listings` |
