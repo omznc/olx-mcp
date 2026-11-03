@@ -36,7 +36,7 @@ const server = new McpServer(
 			"first such tool call asks the user for credentials through this client's own login " +
 			"dialog and saves a token, so just call the tool. If that is unavailable and tools " +
 			"fail with an auth error, tell the user to run `olx-mcp login` in a terminal and " +
-			"restart this server. Either way is preferable to olx_login, which would put their " +
+			"then retry the tool; no restart is needed. Either way is preferable to olx_login, which would put their " +
 			"password in the transcript.\n\n" +
 			"All prices are in KM (BAM). OLX returns 403 or 404 for endpoints the account lacks " +
 			"permission for, so a 404 does not always mean the resource is missing.",

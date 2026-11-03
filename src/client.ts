@@ -97,7 +97,7 @@ function retryAfterMs(response: Response): number | null {
 
 const NOT_LOGGED_IN =
 	"Not logged in to OLX. Run `npx -y @omznc/olx-mcp login` in a terminal " +
-	"(it prompts for your username and password and saves a token), then restart this MCP server. " +
+	"(it prompts for your username and password and saves a token), then try again. No restart is needed. " +
 	"Alternatively set OLX_TOKEN or OLX_USERNAME + OLX_PASSWORD in the server env. " +
 	"(This client cannot show a login dialog, or the dialog was dismissed.)";
 
@@ -116,10 +116,9 @@ export type LoginPrompt = (() => Promise<Credentials | null>) & {
 };
 
 export class OlxClient {
+	private readonly envToken = process.env.OLX_TOKEN?.trim() || null;
 	/** Token held in memory: from OLX_TOKEN, a runtime login, or the saved auth file. */
-	private token: string | null = process.env.OLX_TOKEN?.trim() || null;
-	/** Set once the auth file has been consulted, so it is read at most once. */
-	private storeChecked = false;
+	private token: string | null = this.envToken;
 	/** In-flight login promise, so concurrent calls share one login round-trip. */
 	private loginInFlight: Promise<string> | null = null;
 	/** Installed by the server when the MCP client can show a login dialog. */
@@ -129,15 +128,12 @@ export class OlxClient {
 		return BASE_URL;
 	}
 
-	/** Loads the saved token, unless an env token already took priority. */
+	/**
+	 * Re-reads the auth file while no token is held, so an `olx-mcp login` in a terminal takes
+	 * effect without a restart of the server.
+	 */
 	private async loadStoredToken(): Promise<void> {
-		if (this.storeChecked || this.token) {
-			this.storeChecked = true;
-			return;
-		}
-		this.storeChecked = true;
-		const saved = await readAuth();
-		if (saved) this.token = saved.token;
+		if (!this.token) this.token = (await readAuth())?.token ?? null;
 	}
 
 	/** True when some credential is available, which is not a guarantee that it is valid. */
@@ -172,13 +168,11 @@ export class OlxClient {
 
 	setToken(token: string) {
 		this.token = token || null;
-		this.storeChecked = true;
 	}
 
+	/** Call this after the auth file is deleted, or the next request loads the token again. */
 	clearToken() {
 		this.token = null;
-		// Marked as read, so the token just cleared is not reloaded from disk.
-		this.storeChecked = true;
 	}
 
 	private renewableCredentials(): { username: string; password: string } | null {
@@ -192,22 +186,25 @@ export class OlxClient {
 	 * `olx-mcp login`, and a process running on env credentials should not rewrite it behind the
 	 * user's back. A token the user just typed into a dialog is persisted, same as `login`.
 	 */
-	private async reauthenticate(): Promise<boolean> {
+	private async reauthenticate(rejected: string | null): Promise<boolean> {
+		// A terminal login, or a second server instance, may have saved a newer token.
+		// Env credentials skip this: their tokens are not saved, so the file holds an older one.
 		const credentials = this.renewableCredentials();
-		if (!credentials) {
-			// An expired saved token can be replaced by asking for a new login.
-			if (!this.loginPrompt) return false;
-			this.clearToken();
-			try {
-				return (await this.promptForToken()) !== null;
-			} catch {
-				return false;
+		if (!this.envToken && !credentials) {
+			const saved = (await readAuth())?.token;
+			if (saved && saved !== rejected) {
+				this.token = saved;
+				return true;
 			}
 		}
-		this.clearToken();
+		// The rejected token stays in memory on failure. Clearing it would turn every later
+		// call into "Not logged in", which hides the real cause.
 		try {
-			await this.login(credentials.username, credentials.password);
-			return true;
+			if (credentials) {
+				await this.login(credentials.username, credentials.password);
+				return true;
+			}
+			return (await this.promptForToken()) !== null;
 		} catch {
 			// Re-login failed too, so let the caller report the original 401.
 			return false;
@@ -315,6 +312,7 @@ export class OlxClient {
 		for (;;) {
 			const headers: Record<string, string> = { Accept: "application/json" };
 			if (auth) Object.assign(headers, await this.authHeaders());
+			const sentToken = this.token;
 
 			let payload: FormData | string | undefined;
 			if (formData) {
@@ -357,7 +355,8 @@ export class OlxClient {
 
 			if (response.status === 401 && auth && !authRetried) {
 				authRetried = true;
-				if (await this.reauthenticate()) continue;
+				// A parallel request may already have renewed the token; then only retry.
+				if (this.token !== sentToken || (await this.reauthenticate(sentToken))) continue;
 			}
 
 			if (retryable(method, response.status) && attempt < MAX_RETRIES) {

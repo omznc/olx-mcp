@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeAuth } from "../../src/auth-store.ts";
 import { OlxApiError, OlxAuthError, OlxClient, OlxTimeoutError } from "../../src/client.ts";
 
 type Reply =
@@ -274,6 +275,73 @@ describe("interactive login prompt", () => {
 
 		expect(asked).toHaveLength(1);
 		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a terminal login while the server runs takes effect without a restart", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		stubFetch([{ status: 200, body: { data: {} } }]);
+
+		const client = new OlxClient();
+		await expect(client.get("/me")).rejects.toThrow(/Not logged in/);
+		await writeAuth({ token: "terminal", saved_at: "now" });
+
+		await client.get("/me");
+		expect(bearer(calls[0] as Call)).toBe("Bearer terminal");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a 401 uses a newer saved token before it asks for a login", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		// Another server instance or a terminal login wrote "new" after this one loaded "old".
+		await writeAuth({ token: "new", saved_at: "now" });
+		stubFetch([{ status: 401 }, { status: 200, body: { data: {} } }]);
+		const { prompt, asked } = stubPrompt([]);
+
+		const client = new OlxClient();
+		client.setToken("old");
+		client.setLoginPrompt(prompt);
+		await client.get("/me");
+
+		expect(asked).toHaveLength(0);
+		expect(bearer(calls[1] as Call)).toBe("Bearer new");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("env credentials renew each expiry, even with an old saved token on disk", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "olx-mcp-test-"));
+		process.env.OLX_MCP_CONFIG_DIR = dir;
+		process.env.OLX_USERNAME = "user";
+		process.env.OLX_PASSWORD = "pw";
+		await writeAuth({ token: "stale", saved_at: "now" });
+		stubFetch([
+			{ status: 401 },
+			{ status: 200, body: { token: "e1", user: {} } },
+			{ status: 200, body: { data: {} } },
+			{ status: 401 },
+			{ status: 200, body: { token: "e2", user: {} } },
+			{ status: 200, body: { data: {} } },
+		]);
+
+		const client = new OlxClient();
+		await client.get("/me");
+		await client.get("/me");
+
+		// Regression: the second 401 swapped back to "stale" and spent the retry on it.
+		expect(calls[4]?.url).toEndWith("/auth/login");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a 401 that cannot be renewed keeps reporting the rejected token", async () => {
+		stubFetch([{ status: 401 }, { status: 401 }]);
+		const client = new OlxClient();
+		client.setToken("expired");
+		client.setLoginPrompt(async () => null);
+
+		await expect(client.get("/me")).rejects.toThrow(/rejected the token/);
+		// Regression: the token used to be dropped, so this said "Not logged in".
+		await expect(client.get("/me")).rejects.toThrow(/rejected the token/);
 	});
 
 	test("canPromptLogin follows what the prompt reports", () => {

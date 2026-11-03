@@ -62,7 +62,7 @@ export const registerAuthTools: Registrar = (server, olx) => {
 					auth_file: authFilePath(),
 					authenticated: false,
 					hint:
-						"Tell the user to run `olx-mcp login` in a terminal, then restart this MCP server. " +
+						"Tell the user to run `olx-mcp login` in a terminal, then call this tool again. " +
 						"Setting OLX_TOKEN or OLX_USERNAME + OLX_PASSWORD in the server env also works.",
 				};
 			const me = await olx.get("/me");

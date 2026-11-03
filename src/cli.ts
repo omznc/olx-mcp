@@ -58,7 +58,7 @@ async function login(): Promise<number> {
 		const result = await new OlxClient().login(username, password, { persist: true });
 		console.log(`\nLogged in as ${result.user?.username ?? username}.`);
 		console.log(`Token saved to ${authFilePath()}`);
-		console.log("\nRestart your MCP client to pick it up.");
+		console.log("\nA running olx-mcp server picks it up on its next call.");
 		return 0;
 	} catch (error) {
 		console.error(
